@@ -1,1 +1,636 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.feature_selection import SelectKBest, f_classif
+from sklearn.model_selection import StratifiedKFold
+from sklearn.svm import SVC
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix,roc_curve, auc
+from sklearn.linear_model import LogisticRegression as LR
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import GridSearchCV
+from sklearn.naive_bayes import GaussianNB
+from sklearn.preprocessing import MinMaxScaler
+from scipy.stats import shapiro
 
+
+import warnings
+warnings.filterwarnings("ignore")
+
+
+def add_identity(ax, **kwargs):
+    """
+    Add an identity line (y = x) to a plot.
+
+    Parameters:
+        ax (matplotlib Axes): The Axes object to add the identity line to.
+        kwargs: Additional keyword arguments to customize the appearance of the line.
+    """
+    lims = [ax.get_xlim(), ax.get_ylim()]
+    identity_line = [min(lims[0][0], lims[1][0]), max(lims[0][1], lims[1][1])]
+    ax.plot(identity_line, identity_line, **kwargs)
+
+
+def evaluation_metrics(clf, y, X, ax,legend_entry='my legendEntry',title='mytitle'):
+    # Make predictions
+    y_pred = clf.predict(X)
+
+    # Calculate evaluation metrics
+    accuracy = accuracy_score(y, y_pred)
+    precision = precision_score(y, y_pred)
+    recall = recall_score(y, y_pred)
+    tn, fp, fn, tp = confusion_matrix(y, y_pred).ravel()
+    specificity = tn / (tn + fp)
+    f1 = f1_score(y, y_pred)
+
+    # Get the roc curve using a sklearn function
+    y_test_predict_proba  = clf.predict_proba(X)[:, 1]
+    fp_rates, tp_rates, _ = roc_curve(y, y_test_predict_proba)
+
+    # Calculate the area under the roc curve using a sklearn function
+    roc_auc = auc(fp_rates, tp_rates)
+    # Plot on the provided axis
+    ax.plot(fp_rates, tp_rates,label = legend_entry)
+    return [accuracy,precision,recall,specificity,f1, roc_auc]
+
+# Function to compute average over all folds of all metrics
+def metrics_average(metric):
+    means = metric[['accuracy', 'precision', 'recall', 'specificity', 'F1', 'roc_auc']].mean()
+    met = pd.DataFrame(means)
+    return met
+
+# Function to compute std over all folds of all metrics
+def metrics_std(metric):
+    std = metric[['accuracy', 'precision', 'recall', 'specificity', 'F1', 'roc_auc']].std()
+    met_std =pd.DataFrame(std)
+    return met_std
+
+def eval_metrics(clf, y, X):
+      # Make predictions
+     y_pred = clf.predict(X)
+
+     # Calculate evaluation metrics
+     accuracy = accuracy_score(y, y_pred)
+     precision = precision_score(y, y_pred)
+     recall = recall_score(y, y_pred)
+     tn, fp, fn, tp = confusion_matrix(y, y_pred).ravel()
+     specificity = tn / (tn + fp)
+     f1 = f1_score(y, y_pred)
+
+     # Display the evaluation metrics
+     print("Accuracy:", accuracy)
+     print("Precision:", precision)
+     print("Recall:", recall)
+     print("Specificity:", specificity)
+     print("F1 Score:", f1)
+     return [accuracy,precision,recall,specificity,f1]
+
+
+
+# Set a colorblind friendly color palette as standard
+plt.style.use('tableau-colorblind10')
+
+# Load data
+features = pd.read_csv('DRIAMS-SA/driams_Staphylococcus aureus_Oxacillin_features.csv', encoding="ISO-8859-1", index_col=0)
+
+print('There are', features.shape[1] ,'columns in the features data.')
+print('There are', features.shape[0] ,'rows in the features data.')
+
+labels = pd.read_csv('DRIAMS-SA/driams_Staphylococcus aureus_Oxacillin_labels.csv', encoding="ISO-8859-1", index_col=0)
+
+print('There are', labels.shape[1] ,'columns in the labels data.')
+print('There are', labels.shape[0] ,'rows in the labels data.')
+
+print("__________________________________________")
+sum1=0
+sum2=0
+for i in features:
+    a = features[features[i].isna()].shape[0]
+    if a != 0:
+        sum1 = sum1 + 1
+        print(i)
+if sum1 == 0:
+    print("no missing values in features dataset")
+else:
+    print("MISSING VALUES!!")
+for i in labels:
+    a = labels[labels[i].isna()].shape[0]
+    if a != 0:
+        sum2 = sum2 + 1
+        print(i)
+if sum2 == 0:
+    print("no missing values in labels dataset")
+else:
+    print("MISSING VALUES!!")
+
+#now we know there are no missing values
+print("__________________________________________")
+print(features.info())
+print("__________________________________________")
+print(labels.info())
+
+print("__________________________________________")
+print(features.dtypes.value_counts())
+print(labels.dtypes.value_counts())
+print("__________________________________________")
+print(features.nunique())
+print(labels.nunique())
+print("__________________________________________")
+
+#Visualization of raw data
+features_labels = features.assign(label=labels["label"])
+print(features_labels)
+resistant = features_labels.loc[features_labels["label"] == 1]
+print(resistant)
+not_resistant = features_labels.loc[features_labels["label"] == 0]
+
+heatmap_resistant = resistant[resistant.columns[0:6001]]
+plt.figure(figsize=(10, 6))
+ax = sns.heatmap(heatmap_resistant, cmap='coolwarm', vmin=0, vmax=0.0005)
+ax.set_xticks([])
+ax.set_yticks([])
+ax.set_xticklabels([])
+ax.set_yticklabels([])
+ax.set_ylabel('Samples', fontsize=25)
+ax.set_xlabel('MALDI-TOF features', fontsize=25)
+cbar = ax.collections[0].colorbar
+cbar.ax.tick_params(labelsize=25)
+plt.savefig('output/resistant_heatmap.png')
+
+heatmap_not_resistant = not_resistant[not_resistant.columns[0:6001]]
+plt.figure(figsize=(10, 6))
+bx = sns.heatmap(heatmap_not_resistant, cmap='coolwarm', vmin=0, vmax=0.0005)
+bx.set_xticks([])
+bx.set_yticks([])
+bx.set_xticklabels([])
+bx.set_yticklabels([])
+bx.set_ylabel('Samples', fontsize=25)
+bx.set_xlabel('MALDI-TOF features', fontsize=25)
+cbar = bx.collections[0].colorbar
+cbar.ax.tick_params(labelsize=25)
+plt.savefig('output/not_resistant_heatmap.png')
+
+sample = features.iloc[583]
+fig, ax = plt.subplots(figsize=(52, 6))
+sns.lineplot(data=sample, ax=ax)
+ax.set(xticklabels=[])
+ax.set(yticklabels=[])
+ax.set_xlabel('MALDI-TOF features', fontsize=30)
+ax.set_ylabel('Intensity', fontsize=30)
+ax.tick_params(bottom=False)
+ax.set_xlim(-10, len(sample)+9)
+plt.savefig('output/1sample_allMALDI-TOFS.png')
+#Visualization end
+
+alpha = 0.05
+count_normal = 0
+num_features = len(features.columns)
+bonferroni_alpha = alpha / num_features
+
+for column in features.columns:
+    feature_values = features[column]
+    stat, p_value = shapiro(feature_values)
+
+    if p_value > bonferroni_alpha:
+        count_normal += 1
+print(f"Number of normally distributed features: {count_normal}")
+
+#Plot Labels (Resistent / Non resistent)
+counts = labels['label'].value_counts()
+labelslabel = ['Non-Resistant', 'Resistant']  # Custom names for the ticks
+plt.figure(figsize=(6, 6))
+sns.barplot(x=counts.index, y=counts.values, color="#006BA4").set_xticklabels(labelslabel)
+plt.xlabel('Labels')
+plt.ylabel('Count of Cell Strands')
+plt.title('Distribution of Labels of Resistance')
+plt.tight_layout()
+plt.savefig('output/labels_barplot.png')
+
+
+
+
+#Plot Features
+sample = features.iloc[583]
+fig, ax = plt.subplots(figsize=(52,6))
+sns.lineplot(data=sample, ax = ax)
+ax.set(xticklabels=[])
+ax.tick_params(bottom=False)
+ax.set(xlabel='MALDI-TOF features', ylabel='Values of all MALDI-TOF features from sample number 583')
+plt.savefig('output/1sample_allMALDI-TOFS.png')
+
+#Define empty arrays to store the confusion matrices later in it
+confusion_matrices_log_reg = [0,0,0,0,0]
+confusion_matrices_rf = [0,0,0,0,0]
+confusion_matrices_svm = [0,0,0,0,0]
+confusion_matrices_NB = [0,0,0,0,0]
+
+n_splits = 5
+skf      = StratifiedKFold(n_splits = n_splits, shuffle = True, random_state=42)
+fold = 0
+
+performance_log_reg = pd.DataFrame(columns = ['fold','clf','accuracy','precision','recall',
+                                         'specificity','F1','roc_auc'])
+performance_rf = pd.DataFrame(columns = ['fold','clf','accuracy','precision','recall',
+                                        'specificity','F1','roc_auc'])
+performance_rbf_svc = pd.DataFrame(columns = ['fold','clf','accuracy','precision','recall',
+                                         'specificity','F1','roc_auc'])
+performance_nb = pd.DataFrame(columns = ['fold','clf','accuracy','precision','recall',
+                                         'specificity','F1','roc_auc'])
+all_importance_log = pd.DataFrame()
+all_importance_rf = pd.DataFrame()
+performance_results_svm=[]
+performance_results_rf=[]
+
+fig, axes = plt.subplots(n_splits, 4, figsize=(14, 10))#plot feature selection
+figs,axs = plt.subplots(2,2,figsize=(12, 10))#plot roc curves
+for train_index, test_index in skf.split(features, labels): #that maybe has to change back
+    print('Working on fold ', fold)
+
+    X_test  = features.iloc[test_index]
+    y_test  = labels.iloc[test_index]
+    X_train = features.iloc[train_index]
+    y_train = labels.iloc[train_index]
+
+    # Standardization
+    scaler = MinMaxScaler()
+    X_train_sc = scaler.fit_transform(X_train)
+    X_test_sc  = scaler.transform(X_test)
+
+    # Get F-Values
+    classification = f_classif(X_train_sc, y_train)
+
+    f_statistic = classification[0]
+    X_indices = np.arange(features.shape[-1])
+
+    # First column of graphs a. All features
+    plt.figure(fig)
+    axes[fold, 0].bar(X_indices - 0.05, f_statistic)
+    if fold == 0:
+        axes[fold, 0].set_title("a. All features")
+    axes[fold, 0].set_ylabel(f'Fold {fold+1}')
+
+    sorted_indic = np.argsort(f_statistic)[::-1]
+    sorted_scores = f_statistic[sorted_indic]
+
+    # Second column of graphs b. Sorted
+    axes[fold, 1].bar(X_indices - 0.05, sorted_scores)
+    if fold == 0:
+        axes[fold, 1].set_title("b. All features sorted")
+
+    selection = SelectKBest(f_classif,k = 1000)
+    selection.fit(X_train_sc, y_train)
+    selected_features = selection.get_support(indices=True) #gets indices of selected features
+    sco = selection.scores_[selected_features] #saves all the scores of the given indices in selected_features
+
+
+    # Third column of graphs c. Selected features
+    axes[fold, 2].bar(selected_features - 0.05, sco)
+    if fold == 0:
+        axes[fold, 2].set_title("c. Selected features")
+
+
+    sorted_indices = np.argsort(sco)[::-1]
+    sorted_sco = sco[sorted_indices]    #sort our values
+
+
+    # Fourth column of graphs d. Selected features sorted
+    axes[fold, 3].bar(range(len(sorted_sco)), sorted_sco)
+    if fold == 0:
+        axes[fold, 3].set_title("d. Selected features sorted")
+    plt.close(fig)
+
+    X_train_sel = selection.fit_transform(X_train_sc, y_train)
+    X_test_sel = selection.transform(X_test_sc)
+
+    X_train_selected = pd.DataFrame(X_train_sel, columns=selected_features)
+    X_test_selected = pd.DataFrame(X_test_sel, columns=selected_features)
+
+
+    #### Fitting classifiers ####
+
+    #MLA Logistic Regression
+    plt.figure(figs)
+    param_grid = {
+    'penalty': [None,'l1', 'l2'],
+    'C': [0.1, 1, 10],
+    'solver': ['liblinear', 'saga']}
+
+    # Create the logistic regression model
+    log_reg_grid = LR(random_state=42)
+
+    # Create the GridSearchCV object
+    grid_search_LR = GridSearchCV(estimator=log_reg_grid, param_grid=param_grid, scoring='roc_auc', cv=5)
+
+    # Fit the grid search to the data
+    grid_search_LR.fit(X_train_selected, y_train)
+
+    # Get the best hyperparameters and model
+    best_par = grid_search_LR.best_params_
+    log_reg = grid_search_LR.best_estimator_
+
+    eval_metrics_log_reg = evaluation_metrics(log_reg, y_test, X_test_selected, axs[0,0] ,legend_entry=str(fold))
+    performance_log_reg.loc[len(performance_log_reg),:] = [fold,'log_reg']+eval_metrics_log_reg
+
+
+    coefficients = log_reg.coef_ ##this is the fitted regression model from above
+    importance_log = np.abs(coefficients)
+    # Normalize the absolute coefficients to obtain feature importance scores
+    importance_scores_log = (importance_log / np.sum(importance_log)).flatten()
+    importance_scores_log = np.array(importance_scores_log)  # Convert to NumPy array
+    selected_features = np.array(selected_features)
+    importance_scores_log_df = pd.DataFrame({'importance': importance_scores_log}, index=selected_features)
+
+    print(importance_scores_log_df)
+    index_value = X_train_selected.columns
+
+    for value in index_value:
+        if value in importance_scores_log_df.index:
+            if value in all_importance_log.index:
+                all_importance_log.loc[value, f"Fold_{fold}"] = importance_scores_log_df.loc[value, 'importance']
+            else:
+                new_row = pd.Series([np.nan] * len(all_importance_log.columns), name=value, index=all_importance_log.columns)
+                new_row[f"Fold_{fold}"] = importance_scores_log_df.loc[value, 'importance']
+                all_importance_log = all_importance_log.append(new_row)
+
+    #calculate y-pred
+    y_pred_log = log_reg.predict(X_test_selected)
+
+    #calculate confusion matrix of each fold and store it in the confusion matrix array
+    confusion_matrices_log_reg[fold] = confusion_matrix(y_test, y_pred_log)
+
+
+    #Random Forest
+
+    rf_classifier = RandomForestClassifier(random_state=42)
+
+    #Define the hyperparameter grid
+    param_grid = {
+    'n_estimators': [50, 200, 400],
+    'max_features': ['sqrt', X_train_selected.shape[1] // 3],
+    'max_depth': [None, 5, 10]
+    }
+
+    #Create an instance of the GridSearchCV class and fit the data
+    grid_search_rf = GridSearchCV(estimator=rf_classifier,scoring='roc_auc', param_grid=param_grid, cv=5)
+    grid_search_rf.fit(X_train_selected, y_train)
+
+    #Retrieve the best parameters and best score
+    best_param = grid_search_rf.best_params_
+    best_scores = grid_search_rf.best_score_
+    print("Best parameters:", best_param)
+    print("Best score:", best_scores)
+
+
+
+    #Train the Random Forest model using the best parameters
+    best_rf = RandomForestClassifier(n_estimators=best_param['n_estimators'],
+                                 max_features=best_param['max_features'],
+                                 max_depth=best_param['max_depth'],
+                                 random_state=42)
+    best_rf.fit(X_train_selected, y_train)
+
+
+    # Train the classifier on the training data
+
+    eval_metrics_rf = evaluation_metrics(best_rf, y_test, X_test_selected, axs[0,1],legend_entry=str(fold))
+    performance_rf.loc[len(performance_rf),:] = [fold,'Random Forest']+eval_metrics_rf
+
+    importances_rf = best_rf.feature_importances_
+    importances_rf = np.array(importances_rf)  # Convert to NumPy array
+    selected_features = np.array(selected_features)
+    importance_rf_df = pd.DataFrame({'importance': importances_rf}, index=selected_features)
+
+    index_value = X_train_selected.columns
+
+    for value in index_value:
+        if value in importance_rf_df.index:
+            if value in all_importance_rf.index:
+                all_importance_rf.loc[value, f"Fold_{fold}"] = importance_rf_df.loc[value, 'importance']
+            else:
+                new_row = pd.Series([np.nan] * len(all_importance_rf.columns), name=value, index=all_importance_rf.columns)
+                new_row[f"Fold_{fold}"] = importance_rf_df.loc[value, 'importance']
+                all_importance_rf = all_importance_rf.append(new_row)
+
+    #calculate y-pred
+    y_pred_rf = best_rf.predict(X_test_selected)
+
+    #calculate confusion matrix of each fold and store it in the confusion matrix array
+    confusion_matrices_rf[fold] = confusion_matrix(y_test, y_pred_rf)
+
+
+    ### Gaussian Naive Bayes Classifier
+    NB = GaussianNB()
+    NB.fit(X_train_selected,y_train)
+    eval_metrics_nb = evaluation_metrics(NB, y_test, X_test_selected, axs[1,0],legend_entry=str(fold))
+    performance_nb.loc[len(performance_nb),:] = [fold,'naive_bayes']+eval_metrics_nb
+
+    #calculate y-pred
+    y_pred_NB = NB.predict(X_test_selected)
+
+    #calculate confusion matrix of each fold and store it in the confusion matrix array
+    confusion_matrices_NB[fold] = confusion_matrix(y_test, y_pred_NB)
+
+
+    #SVM
+    svm_classifier = SVC(kernel='rbf', probability=True)
+    # Define the parameter grid for the grid search
+    param_grid_svm = {
+    'kernel': ['linear', 'rbf', 'sigmoid', 'poly'],
+    'C': [0.1, 1, 10],
+    'gamma': ['scale', 'auto']
+    }
+
+
+    grid_search_svm = GridSearchCV(estimator=svm_classifier, scoring='roc_auc', param_grid=param_grid_svm, cv=5)
+    grid_search_svm.fit(X_train_selected, y_train)
+
+    best_params = grid_search_svm.best_params_
+    best_score = grid_search_svm.best_score_
+    print(best_params)
+    print(best_score)
+
+
+    # Train the model with the best parameters
+    best_svc = SVC(kernel=best_params['kernel'], C=best_params['C'], gamma=best_params['gamma'], probability=True)
+    best_svc.fit(X_train_selected, y_train)
+
+
+
+    eval_metrics_rbf_svc = evaluation_metrics(best_svc, y_test, X_test_selected, axs[1,1],legend_entry=str(fold))
+    performance_rbf_svc.loc[len(performance_rbf_svc),:] = [fold,'rbf_svc']+eval_metrics_rbf_svc
+
+     #calculate y-pred
+    y_pred_svm = best_svc.predict(X_test_selected)
+
+    #calculate confusion matrix of each fold and store it in the confusion matrix array
+    confusion_matrices_svm[fold] = confusion_matrix(y_test, y_pred_svm)
+
+    plt.close(figs)
+    fold = fold+1
+
+#print results of gridsearch
+#print(performance_df_rf)
+#print(performance_df_svm)
+
+
+
+# Set common labels and title for feature selection plot
+plt.figure(fig)
+fig.suptitle('Feature selection based on ANOVA F-values')
+fig.supxlabel('Features')
+fig.supylabel('F-values')
+# Save plot
+plt.tight_layout()
+plt.savefig("output/FeatureSelection.pdf")
+plt.close(fig)
+
+# Ad random classifier and set titles legend and common labels for ROC plot
+names_all_classifier = ['Logistic Regression','Random Forest','Gaussian Naive Bayes','SVM: rbf-SVC']
+for i,ax in enumerate(axs.flatten()):
+    add_identity(ax, color="r", ls="--", label='random\nclassifier')
+    ax.set_title(names_all_classifier[i])
+plt.figure(figs)
+plt.legend(title='Fold')
+figs.supxlabel('Sensitivity: TPR')
+figs.supylabel('1-Specificity: FPR')
+figs.suptitle('ROC Curves of all Classifiers')
+
+# Save the plot
+plt.tight_layout()
+plt.savefig('output/roc_curves.png')
+plt.close(figs)
+
+
+
+
+
+###Feature importance
+top_features =pd.DataFrame(columns=['LR','RF'])
+# Logistic regression
+# Calculate average importance and standard deviation
+
+average_importance_log = all_importance_log.fillna(0).mean(axis=1)
+std_importance_log = all_importance_log.fillna(0).std(axis=1)
+# Sort the average importance values in descending order
+sorted_importance_log = average_importance_log.sort_values(ascending=False)
+# Print the sorted importance values
+#print(sorted_importance_log)
+# Select top N values
+top_n = 10
+top_values = sorted_importance_log.head(top_n)
+top_indices = top_values.index
+top_features['LR']=top_indices*3+2000
+# Select corresponding standard deviation values for top N features
+top_std_values = std_importance_log[top_indices]
+
+# Create the plot
+fig6, ax6 = plt.subplots(figsize=(18, 6))
+# Plot average importance scores
+ax6.bar(range(top_n), top_values, align='center', label='Average Importance')
+# Plot standard deviation as error bars
+ax6.errorbar(range(top_n), top_values, yerr=top_std_values, fmt='none',ecolor='black', capsize=5, label='Standard Deviation')
+# Set x-axis ticks and labels
+ax6.set_xticks(range(top_n))
+ax6.set_xticklabels(top_indices)
+ax6.set_xlabel('Feature Index', fontsize=20)
+ax6.set_ylabel('Importance Score', fontsize=20)
+ax6.set_title('Top {} Feature Importances Logistic Regression'.format(top_n), fontsize=25)
+ax6.legend()
+plt.savefig("output/log_featureimportance.png")
+plt.close(fig6)
+
+
+#plot Random Forest
+# Calculate average importance and standard deviation
+average_importance_rf = all_importance_rf.fillna(0).mean(axis=1)
+std_importance_rf = all_importance_rf.fillna(0).std(axis=1)
+# Sort the average importance values in descending order
+sorted_importance_rf = average_importance_rf.sort_values(ascending=False)
+# Select top N values
+top_values_rf = sorted_importance_rf.head(top_n)
+top_indices_rf = top_values_rf.index
+top_features['RF']=top_indices_rf*3+2000
+top_features.to_csv('output/table_top_features.csv', sep=';')
+
+# Select corresponding standard deviation values for top N features
+top_std_values_rf = std_importance_rf[top_indices_rf]
+# Create the plot
+fig5, ax5 = plt.subplots(figsize=(18, 6))
+# Plot average importance scores
+ax5.bar(range(top_n), top_values_rf, align='center', label='Average Importance')
+# Plot standard deviation as error bars
+ax5.errorbar(range(top_n), top_values_rf, yerr=top_std_values_rf, fmt='none', ecolor='black', capsize=5, label='Standard Deviation')
+ax5.set_xticks(range(top_n))
+ax5.set_xticklabels(top_indices_rf)
+ax5.set_xlabel('Feature Index', fontsize=20)
+ax5.set_ylabel('Importance Score', fontsize=20)
+ax5.set_title('Top {} Feature Importances Random Forest'.format(top_n), fontsize=25)
+ax5.legend()
+plt.savefig("output/rf_featureimportance.png")
+plt.close(fig5)
+
+
+
+### Create lists with names and dictionary to create evaluation summary df
+names_all_metrics = ['accuracy','precision','recall',
+                                         'specificity','F1','roc_auc']
+all_performances = [performance_log_reg,
+                    performance_rf, performance_nb, performance_rbf_svc]
+dict_perf=dict(zip(names_all_classifier, all_performances))
+
+# Set up multiindex columns for evaluation summary df
+col_clf = [x for pair in zip(names_all_classifier,names_all_classifier) for x in pair]
+col_mean_std = []
+for i in range(len(names_all_classifier)):
+    col_mean_std.append('mean')
+    col_mean_std.append('std')
+col_arrays = [col_clf, col_mean_std]
+cols=pd.MultiIndex.from_arrays(col_arrays)
+
+# Set up evaluation summary df
+evaluation_summary =pd.DataFrame(index = names_all_metrics, columns=cols)
+
+for clf in names_all_classifier:
+    mean=metrics_average(dict_perf[clf]).round(3)
+    std=metrics_std(dict_perf[clf]).round(3)
+    print(mean)
+    evaluation_summary[clf,'mean']= mean[0]
+    evaluation_summary[clf, 'std']= std[0]
+print(evaluation_summary)
+evaluation_summary.to_csv('output/table_evaluation.csv', sep=';')
+
+# Create grouped bar plot for evaluation metrics
+x= np.arange(6)
+width = 0.2
+ev_met= plt.figure(figsize=(14,10))
+plt.title("Overview Evaluation Metrics")
+plt.xlabel('Evaluation Metrics')
+plt.ylabel('Scores')
+plt.bar(x-0.3, evaluation_summary[names_all_classifier[0],'mean'], width, yerr=evaluation_summary[names_all_classifier[3],'std'])
+plt.bar(x-0.1, evaluation_summary[names_all_classifier[1],'mean'], width, yerr=evaluation_summary[names_all_classifier[3],'std'])
+plt.bar(x+0.1, evaluation_summary[names_all_classifier[2],'mean'], width, yerr=evaluation_summary[names_all_classifier[3],'std'])
+plt.bar(x+0.3, evaluation_summary[names_all_classifier[3],'mean'], width, yerr=evaluation_summary[names_all_classifier[3],'std'])
+plt.xticks(x, names_all_metrics)
+plt.legend(names_all_classifier,   bbox_to_anchor=(0.5, 0), loc="lower center",
+                bbox_transform=ev_met.transFigure, ncol=4)
+plt.savefig('output/barplot_evaluation', bbox_inches='tight')
+plt.tight_layout()
+plt.close()
+
+#calculate the average confusion matrices over 5 folds for every classifier and print them.
+average_confusion_matrix_log_reg = np.mean(confusion_matrices_log_reg, axis=0)
+average_confusion_matrix_rf = np.mean(confusion_matrices_rf, axis=0)
+average_confusion_matrix_NB = np.mean(confusion_matrices_NB, axis=0)
+average_confusion_matrix_svm = np.mean(confusion_matrices_svm, axis=0)
+
+print("Average Confusion Matrix logistic regression:")
+print(average_confusion_matrix_log_reg)
+
+print("Average Confusion Matrix random forest:")
+print(average_confusion_matrix_rf)
+
+print("Average Confusion Naive Bayes:")
+print(average_confusion_matrix_NB)
+
+print("Average Confusion Matrix SVM:")
+print(average_confusion_matrix_svm)
